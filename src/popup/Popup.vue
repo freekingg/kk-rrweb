@@ -1,157 +1,79 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, onUnmounted } from 'vue'
-import { setItem, getItem } from '../utils/helper'
+import { ref, onMounted, onUnmounted } from 'vue'
 
-// 录制状态
+// UI 状态
 const isRecording = ref(false)
-const recordingStartTime = ref<number | null>(null)
-const recordingDuration = ref('00:00')
 const isPaused = ref(false)
-const pauseStartTime = ref<number | null>(null)
-const totalPauseTime = ref(0)
+const recordingDuration = ref('00:00')
 const isProcessing = ref(false)
 
-// 更新录制时长显示
-const updateDuration = () => {
-  if (!recordingStartTime.value) return
+// 轮询定时器
+let pollingTimer: ReturnType<typeof setInterval> | null = null
 
-  const now = Date.now()
-  const pauseTime = totalPauseTime.value
+// 获取状态并更新 UI
+const fetchStatus = async () => {
+  try {
+    const res = await chrome.runtime.sendMessage({ type: 'get-recording-status' })
+    isRecording.value = res.isRecording
+    isPaused.value = res.isPaused
 
-  // 计算实际录制时间（排除暂停时间）
-  const durationMs = isPaused.value
-    ? pauseStartTime.value! - recordingStartTime.value - pauseTime
-    : now - recordingStartTime.value - pauseTime
-
-  // 格式化为 MM:SS
-  const minutes = Math.floor(durationMs / 60000)
-  const seconds = Math.floor((durationMs % 60000) / 1000)
-  recordingDuration.value = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+    const durationMs = res.duration ?? 0
+    const minutes = Math.floor(durationMs / 60000)
+    const seconds = Math.floor((durationMs % 60000) / 1000)
+    recordingDuration.value = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+  } catch (err) {
+    console.error('获取录制状态失败', err)
+  }
 }
 
-// 开始录制
+// 控制函数
 const startRecording = async () => {
   if (isProcessing.value) return
-
+  isProcessing.value = true
   try {
-    isProcessing.value = true
-
-    // 如果是恢复录制而非全新开始
-    if (isPaused.value) {
-      // 计算暂停时长并累加
-      const pauseDuration = Date.now() - pauseStartTime.value!
-      totalPauseTime.value += pauseDuration
-      isPaused.value = false
-    } else {
-      // 全新开始录制
-      recordingStartTime.value = Date.now()
-      totalPauseTime.value = 0
-
-      // 发送消息到 background 开始录制
-      await chrome.runtime.sendMessage({ type: 'start-recording' })
-    }
-
-    isRecording.value = true
-    startDurationTimer()
+    await chrome.runtime.sendMessage({ type: 'start-recording' })
+    await fetchStatus()
   } catch (err) {
-    console.error('开始录制失败:', err)
-    // 显示错误提示
+    console.error('开始录制失败', err)
   } finally {
     isProcessing.value = false
   }
 }
 
-// 暂停录制
 const pauseRecording = async () => {
-  if (!isRecording.value || isPaused.value || isProcessing.value) return
-
+  if (isProcessing.value) return
+  isProcessing.value = true
   try {
-    isProcessing.value = true
-    isPaused.value = true
-    pauseStartTime.value = Date.now()
-
-    // 发送消息到 background 暂停录制
     await chrome.runtime.sendMessage({ type: 'pause-recording' })
+    await fetchStatus()
   } catch (err) {
-    console.error('暂停录制失败:', err)
-    // 显示错误提示
+    console.error('暂停录制失败', err)
   } finally {
     isProcessing.value = false
   }
 }
 
-// 停止录制
 const stopRecording = async () => {
-  if (!isRecording.value || isProcessing.value) return
-
+  if (isProcessing.value) return
+  isProcessing.value = true
   try {
-    isProcessing.value = true
-
-    // 发送消息到 background 停止录制
     await chrome.runtime.sendMessage({ type: 'stop-recording' })
-
-    // 重置状态
-    resetRecordingState()
+    await fetchStatus()
   } catch (err) {
-    console.error('停止录制失败:', err)
-    // 显示错误提示
+    console.error('停止录制失败', err)
   } finally {
     isProcessing.value = false
   }
 }
 
-// 重置录制状态
-const resetRecordingState = () => {
-  isRecording.value = false
-  isPaused.value = false
-  recordingStartTime.value = null
-  pauseStartTime.value = null
-  totalPauseTime.value = 0
-  recordingDuration.value = '00:00'
-
-  // 停止计时器
-  if (durationTimer) {
-    clearInterval(durationTimer)
-    durationTimer = null
-  }
-}
-
-// 时长计时器
-let durationTimer: ReturnType<typeof setInterval> | null = null
-
-const startDurationTimer = () => {
-  // 先清除现有计时器
-  if (durationTimer) {
-    clearInterval(durationTimer)
-  }
-
-  // 每秒更新一次时长显示
-  durationTimer = setInterval(updateDuration, 1000)
-}
-
-// 监听录制状态变化，更新UI
-watch(isRecording, (newVal) => {
-  if (!newVal) {
-    resetRecordingState()
-  }
-})
-
-// 组件卸载时清理
+// 初始化
 onMounted(() => {
-  chrome.storage.local.get('recording', (res) => {
-    if (!res.recording || res.recording === 'start') {
-      isRecording.value = true
-    } else {
-      isRecording.value = false
-    }
-  })
+  fetchStatus()
+  pollingTimer = setInterval(fetchStatus, 1000)
 })
 
-// 页面卸载时清理
 onUnmounted(() => {
-  if (durationTimer) {
-    clearInterval(durationTimer)
-  }
+  if (pollingTimer) clearInterval(pollingTimer)
 })
 </script>
 
@@ -170,21 +92,42 @@ onUnmounted(() => {
     </div>
 
     <div class="controls">
-      <button @click="startRecording" class="btn start-btn" :disabled="isRecording || isProcessing">
+      <button
+        v-if="!isRecording"
+        @click="startRecording"
+        class="btn start-btn"
+        :disabled="isProcessing"
+      >
         <span class="icon">▶</span> 开始录制
       </button>
 
-      <button
-        @click="pauseRecording"
-        class="btn pause-btn"
-        :disabled="!isRecording || isPaused || isProcessing"
-      >
-        <span class="icon">⏸</span> 暂停录制
-      </button>
+      <template v-else>
+        <button
+          v-if="!isPaused"
+          @click="pauseRecording"
+          class="btn pause-btn"
+          :disabled="isProcessing"
+        >
+          <span class="icon">⏸</span> 暂停录制
+        </button>
 
-      <button @click="stopRecording" class="btn stop-btn" :disabled="!isRecording || isProcessing">
-        <span class="icon">⏹</span> 停止录制
-      </button>
+        <button
+          v-if="isPaused"
+          @click="startRecording"
+          class="btn resume-btn"
+          :disabled="isProcessing"
+        >
+          <span class="icon">▶</span> 继续录制
+        </button>
+
+        <button
+          @click="stopRecording"
+          class="btn stop-btn"
+          :disabled="isProcessing"
+        >
+          <span class="icon">⏹</span> 停止录制
+        </button>
+      </template>
     </div>
 
     <div class="message" v-if="isProcessing">
@@ -291,6 +234,15 @@ h3 {
   background-color: #f1c40f;
 }
 
+.resume-btn {
+  background-color: #3498db;
+  color: white;
+}
+
+.resume-btn:hover:not(:disabled) {
+  background-color: #2980b9;
+}
+
 .stop-btn {
   background-color: #e74c3c;
   color: white;
@@ -325,23 +277,13 @@ h3 {
 }
 
 @keyframes spin {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 @keyframes pulse {
-  0% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.4;
-  }
-  100% {
-    opacity: 1;
-  }
+  0% { opacity: 1; }
+  50% { opacity: 0.4; }
+  100% { opacity: 1; }
 }
 </style>

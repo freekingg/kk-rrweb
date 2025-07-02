@@ -39,11 +39,11 @@ export default defineManifest({
       matches: ['<all_urls>'],
       //@ts-ignore
       js: ['src/contentScript/index.ts'],
-      run_at: "document_idle"
+      run_at: 'document_idle',
     },
   ],
-  "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  content_security_policy: {
+    extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
   },
   web_accessible_resources: [
     {
@@ -51,5 +51,6 @@ export default defineManifest({
       matches: ['http://*/*', 'https://*/*'],
     },
   ],
-  permissions: ['sidePanel', "activeTab", "storage", "tabs", "unlimitedStorage"],
+  permissions: ['sidePanel', 'activeTab', 'storage', 'tabs', 'unlimitedStorage', 'scripting'],
+  host_permissions: ['<all_urls>'],
 })

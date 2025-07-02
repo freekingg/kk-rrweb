@@ -1,9 +1,7 @@
-import { listenerHandler } from '@rrweb/types';
 import { record } from 'rrweb';
 
-let stopFn: listenerHandler | null | undefined = null;
-
-console.log('rrweb runing');
+let stopFn: any
+let isRecording = false
 
 function sendEventToBackground(event: any) {
   chrome.runtime.sendMessage({
@@ -13,57 +11,59 @@ function sendEventToBackground(event: any) {
 }
 
 function startRecord() {
+  if (isRecording) return
+  isRecording = true
+
   stopFn = record({
-    emit(event) {
-      sendEventToBackground(event);
-    },
-    sampling: {
-       //@ts-ignore
-      mousemove: {
-        // 降低频率 & 降低距离灵敏度
-        //@ts-ignore
-        interval: 500,
-        //@ts-ignore
-        distanceThreshold: 20
-      },
-      input: 'last', // 只记录最后一次输入
-      //@ts-ignore
-      scroll: false, // 关闭 scroll
-      //@ts-ignore
-      media: false   // 关闭媒体事件
-    },
-    //@ts-ignore
-    recordCanvas: false,
-    //@ts-ignore
-    collectFonts: false,
-    //@ts-ignore
-    inlineStylesheet: false // 减小初始 snapshot 大小
-  });
+  emit(event) {
+    sendEventToBackground(event)
+  },
+  sampling: {
+    mousemove: false,
+    mouseInteraction: false, // 关闭鼠标 hover/enter/leave 事件
+    scroll: false,
+    input: 'last', // 已是最优策略
+  },
+  recordCanvas: false,
+  collectFonts: false,
+  inlineStylesheet: false,
+  maskAllInputs: true // 避免录入密码等敏感字段
+})
+
+
+  console.log('[rrweb] started in tab', location.href)
 }
 
 function stopRecord() {
+  if (!isRecording) return
+  isRecording = false
+
   if (stopFn) {
-    stopFn();
-    stopFn = null;
+    stopFn()
+    stopFn = null
+    console.log('[rrweb] stopped in tab', location.href)
   }
 }
 
+// 监听 background 消息
 chrome.runtime.onMessage.addListener((msg) => {
-  console.log('content msg: ', msg);
   if (msg.type === 'start-record') {
-    startRecord();
+    startRecord()
   }
   if (msg.type === 'stop-record') {
-    stopRecord();
+    stopRecord()
   }
-});
+})
 
-// 初始状态判断是否启动
+// 初始化：是否需要启动
 chrome.storage.local.get('recording', (res) => {
-  console.log('recording: ', res);
-  if (!res.recording  || res.recording === 'start') {
-    startRecord();
-  }else{
-    stopRecord();
+  if (!res.recording || res.recording === 'start') {
+    startRecord()
+  } else {
+    stopRecord()
   }
-});
+})
+
+window.addEventListener('beforeunload', () => {
+  stopRecord()
+})
