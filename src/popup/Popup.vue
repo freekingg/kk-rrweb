@@ -66,6 +66,11 @@ const stopRecording = async () => {
   }
 }
 
+// 打开插件设置页
+const openOptionsPage = () => {
+  chrome.runtime.openOptionsPage()
+}
+
 // 初始化
 onMounted(() => {
   fetchStatus()
@@ -133,6 +138,12 @@ onUnmounted(() => {
     <div class="message" v-if="isProcessing">
       <div class="spinner"></div>
       <span>处理中...</span>
+    </div>
+
+    <div class="footer">
+      <button class="btn options-btn" @click="openOptionsPage">
+        ⚙️ 设置
+      </button>
     </div>
   </div>
 </template>
@@ -252,6 +263,26 @@ h3 {
   background-color: #c0392b;
 }
 
+.options-btn {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background-color: transparent;
+  border: 1px solid #ccc;
+  color: #555;
+  border-radius: 6px;
+  font-size: 13px;
+  transition: all 0.25s ease-in-out;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.options-btn:hover:not(:disabled) {
+  border-color: #2980b9;
+  color: #2980b9;
+  background-color: #ecf6ff;
+}
+
 .icon {
   margin-right: 5px;
 }
@@ -274,6 +305,11 @@ h3 {
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin-right: 5px;
+}
+
+.footer {
+  text-align: center;
+  margin-top: 20px;
 }
 
 @keyframes spin {

@@ -4,16 +4,13 @@ import { setItem, getItem, generateUUID } from '../utils/helper'
 
 console.log('[background] is running')
 
-let sessionId: string = ''
-let booleanUid = ''
+let booleanUid:string = ''
 
 let isRecording = false
 let isPaused = false
 let recordingStartTime: number | null = null
 let pauseStartTime: number | null = null
 let totalPauseTime = 0
-
-init()
 
 // 初始化 UID
 function init() {
@@ -28,6 +25,18 @@ function init() {
   })
 }
 
+async function broadcastToActiveTab(msg: any) {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+    if (tab?.id !== undefined) {
+      chrome.tabs.sendMessage(tab.id, msg)
+    }
+  } catch (err) {
+    console.error('[background] Failed to send message to active tab:', err)
+  }
+}
+
+
 // 统一广播控制所有 tab
 async function broadcastToAllTabs(msg: any) {
   const tabs = await chrome.tabs.query({ url: ['<all_urls>'] })
@@ -41,6 +50,15 @@ async function broadcastToAllTabs(msg: any) {
 // 接收来自 content 或 popup 的消息
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.type) {
+    // 存储页面发来的PID
+    case '__EXTENSION_MSG__': {
+      if (message.data) {
+        console.log('页面发来的PID: ', message.data);
+        setItem('__EXTENSION_MSG__', message.data)
+      }
+      break
+    }
+
     case 'rrweb-event': {
       if (isRecording && !isPaused) {
         addEvent(message.data, booleanUid)
@@ -79,7 +97,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     case 'start-recording': {
-      handleStartRecording(sendResponse)
+      getItem('booleanUid').then((res) => {
+        if (res) {
+          booleanUid = res as string
+          handleStartRecording()
+        } else {
+          booleanUid = generateUUID()
+          setItem('booleanUid', booleanUid)
+          handleStartRecording()
+        }
+      })
       return true
     }
 
@@ -109,7 +136,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 })
 
-function handleStartRecording(sendResponse: (res: any) => void) {
+async function handleStartRecording() {
   try {
     const now = Date.now()
     if (isPaused && pauseStartTime) {
@@ -117,20 +144,17 @@ function handleStartRecording(sendResponse: (res: any) => void) {
       pauseStartTime = null
       isPaused = false
     } else {
-      sessionId = `recording_${now}`
       recordingStartTime = now
       totalPauseTime = 0
       isPaused = false
     }
 
     isRecording = true
-    setItem('recording', 'start')
-
-    broadcastToAllTabs({ type: 'start-record' })
-    sendResponse({ success: true })
+    await setItem('recording', 'start')
+    broadcastToActiveTab({ type: 'start-record' })
+    // broadcastToAllTabs({ type: 'start-record' })
   } catch (err:any) {
     console.error('[background] Error starting recording:', err)
-    sendResponse({ error: err.message })
   }
 }
 
@@ -172,10 +196,52 @@ function handleStopRecording(sendResponse: (res: any) => void) {
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log('[background] onInstalled')
-  init()
+  // init()
 })
 
 chrome.runtime.onStartup.addListener(() => {
   console.log('[background] onStartup')
-  init()
+  // init()
 })
+
+
+const EXCLUDED_RESOURCE_TYPES = [
+  'stylesheet', // .css
+  'script',     // .js
+  'image',      // .png, .jpg, .gif
+  'font',       // .woff, .ttf
+  'media',      // .mp3, .mp4
+  'other'       // often includes tracking pixels, WebSockets, etc.
+]
+
+// 监听所有 GET 请求
+chrome.webRequest.onBeforeRequest.addListener(
+  (details) => {
+    if (details.method !== 'GET') return
+
+    // 如果是静态资源，则跳过
+    if (EXCLUDED_RESOURCE_TYPES.includes(details.type)) return
+
+    // 用 URL API 解析参数
+    try {
+      const url = new URL(details.url)
+      const value = url.searchParams.get('swkdntg')
+
+      if (value) {
+        console.log('[捕获 swkdntg]', value, 'from:', url.href)
+
+        // 可选：发送到 popup / 存储
+        // chrome.runtime.sendMessage({ type: 'swkdntg-detected', value })
+        // chrome.storage.local.set({ lastSwkdntg: value })
+        setItem('booleanUid', value).then(() => {
+          booleanUid = value
+          handleStartRecording()
+        })
+      }
+    } catch (e) {
+      console.warn('URL 解析失败：', details.url)
+    }
+  },
+  { urls: ['<all_urls>'] },
+  []
+)

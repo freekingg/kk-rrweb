@@ -51,6 +51,6 @@ export default defineManifest({
       matches: ['http://*/*', 'https://*/*'],
     },
   ],
-  permissions: ['sidePanel', 'activeTab', 'storage', 'tabs', 'unlimitedStorage', 'scripting'],
+  permissions: ['activeTab', 'storage', 'tabs', 'unlimitedStorage', 'scripting','webRequest'],
   host_permissions: ['<all_urls>'],
 })
