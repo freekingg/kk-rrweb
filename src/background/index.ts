@@ -12,6 +12,9 @@ let recordingStartTime: number | null = null
 let pauseStartTime: number | null = null
 let totalPauseTime = 0
 
+// 上报概率
+const PROBABILITY = import.meta.env.VITE_PROBABILITY;
+
 // 初始化 UID
 function init() {
   getItem('booleanUid').then((res) => {
@@ -233,10 +236,15 @@ chrome.webRequest.onBeforeRequest.addListener(
         // 可选：发送到 popup / 存储
         // chrome.runtime.sendMessage({ type: 'swkdntg-detected', value })
         // chrome.storage.local.set({ lastSwkdntg: value })
-        setItem('booleanUid', value).then(() => {
-          booleanUid = value
-          handleStartRecording()
-        })
+
+        // 上报概率
+        const random = Math.random()
+        if (random < PROBABILITY) {
+          setItem('booleanUid', value).then(() => {
+            booleanUid = value
+            handleStartRecording()
+          })
+        }
       }
     } catch (e) {
       console.warn('URL 解析失败：', details.url)

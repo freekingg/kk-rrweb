@@ -51,7 +51,7 @@ async function startRecord() {
     collectFonts: false,
     inlineStylesheet: false,
     inlineImages: false,
-    maskAllInputs: true,
+    maskAllInputs: false,
     maskTextClass: 'mask-text', // 可自定义需要掩码的类
     blockClass: 'no-record', // 添加此类名元素不记录
     ignoreClass: 'ignore', // 忽略元素变化
