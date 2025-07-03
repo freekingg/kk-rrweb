@@ -1,21 +1,89 @@
 // background.ts
 import { addEvent, getEventsBySession, getRecentSessions, clearAllData } from '../utils/idb'
 import { setItem, getItem, generateUUID } from '../utils/helper'
+import { deflate } from 'pako'
 
 console.log('[background] is running')
 
-let booleanUid:string = ''
-
+let booleanUid: string = ''
 let isRecording = false
 let isPaused = false
 let recordingStartTime: number | null = null
 let pauseStartTime: number | null = null
 let totalPauseTime = 0
 
-// 上报概率
-const PROBABILITY = import.meta.env.VITE_PROBABILITY;
+const PROBABILITY = import.meta.env.VITE_PROBABILITY
+const UPLOAD_INTERVAL = 5000
+const MAX_BATCH_SIZE = 50
 
-// 初始化 UID
+let eventBuffer: any[] = []
+let uploadTimer: NodeJS.Timeout | null = null
+
+function bufferEvent(event: any) {
+  eventBuffer.push(event)
+
+  // 批量控制：到达最大数量时立即上传
+  if (eventBuffer.length >= MAX_BATCH_SIZE) {
+    flushEvents()
+    return
+  }
+
+  // 否则延迟上传（防止高频触发）
+  if (!uploadTimer) {
+    uploadTimer = setTimeout(() => {
+      flushEvents()
+    }, UPLOAD_INTERVAL)
+  }
+}
+
+function encodeToBase64(uint8: Uint8Array): string {
+  let binary = ''
+  const len = uint8.length
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(uint8[i])
+  }
+  return btoa(binary)
+}
+
+async function flushEvents() {
+  if (eventBuffer.length === 0) return
+
+  const batch = [...eventBuffer]
+  eventBuffer = []
+  if (uploadTimer) {
+    clearTimeout(uploadTimer)
+    uploadTimer = null
+  }
+
+  try {
+    // 将事件数组压缩为 base64 格式
+    const compressed = deflate(JSON.stringify(batch)) // Uint8Array
+
+    const base64 = encodeToBase64(compressed)
+
+    const payload = {
+      sessionId: booleanUid,
+      timestamp: Date.now(),
+      count: batch.length,
+      compressed: base64, 
+    }
+
+    console.log('[upload] 准备上传：', payload)
+
+    await fetch(import.meta.env.VITE_UPLOAD_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+
+    console.log('[upload] ✅ 成功上传', batch.length, '条事件')
+  } catch (err) {
+    console.error('[upload] ❌ 上传失败:', err)
+    // ✅ TODO：可加入失败重试逻辑，比如保存到 fallbackQueue 中
+  }
+}
+
+
 function init() {
   getItem('booleanUid').then((res) => {
     if (res) {
@@ -39,8 +107,6 @@ async function broadcastToActiveTab(msg: any) {
   }
 }
 
-
-// 统一广播控制所有 tab
 async function broadcastToAllTabs(msg: any) {
   const tabs = await chrome.tabs.query({ url: ['<all_urls>'] })
   for (const tab of tabs) {
@@ -50,13 +116,10 @@ async function broadcastToAllTabs(msg: any) {
   }
 }
 
-// 接收来自 content 或 popup 的消息
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.type) {
-    // 存储页面发来的PID
     case '__EXTENSION_MSG__': {
       if (message.data) {
-        console.log('页面发来的PID: ', message.data);
         setItem('__EXTENSION_MSG__', message.data)
       }
       break
@@ -64,9 +127,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'rrweb-event': {
       if (isRecording && !isPaused) {
-        addEvent(message.data, booleanUid)
-          .then(() => console.log('[background] Event stored'))
-          .catch((err) => console.error('[background] Failed to store event:', err))
+        const event = message.data
+        bufferEvent(event)
+
+        addEvent(message.data, booleanUid).catch((err) => console.error('[background] Failed to store event:', err))
       }
       break
     }
@@ -85,13 +149,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true
     }
 
-    // case 'get-compressed-events': {
-    //   getCompressedEventsBySession(message.sessionId)
-    //     .then((events) => sendResponse({ events }))
-    //     .catch((err) => sendResponse({ error: err.message }))
-    //   return true
-    // }
-
     case 'clear-recordings': {
       clearAllData()
         .then(() => sendResponse({ success: true }))
@@ -101,14 +158,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'start-recording': {
       getItem('booleanUid').then((res) => {
-        if (res) {
-          booleanUid = res as string
-          handleStartRecording()
-        } else {
-          booleanUid = generateUUID()
-          setItem('booleanUid', booleanUid)
-          handleStartRecording()
-        }
+        booleanUid = res ? res as string : generateUUID()
+        setItem('booleanUid', booleanUid)
+        handleStartRecording()
       })
       return true
     }
@@ -129,115 +181,67 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         ? (isPaused ? pauseStartTime! : now) - recordingStartTime - totalPauseTime
         : 0
 
-      sendResponse({
-        isRecording,
-        isPaused,
-        duration: activeDuration
-      })
+      sendResponse({ isRecording, isPaused, duration: activeDuration })
       return true
     }
   }
 })
 
 async function handleStartRecording() {
-  try {
-    const now = Date.now()
-    if (isPaused && pauseStartTime) {
-      totalPauseTime += now - pauseStartTime
-      pauseStartTime = null
-      isPaused = false
-    } else {
-      recordingStartTime = now
-      totalPauseTime = 0
-      isPaused = false
-    }
-
-    isRecording = true
-    await setItem('recording', 'start')
-    broadcastToActiveTab({ type: 'start-record' })
-    // broadcastToAllTabs({ type: 'start-record' })
-  } catch (err:any) {
-    console.error('[background] Error starting recording:', err)
+  const now = Date.now()
+  if (isPaused && pauseStartTime) {
+    totalPauseTime += now - pauseStartTime
+    pauseStartTime = null
+    isPaused = false
+  } else {
+    recordingStartTime = now
+    totalPauseTime = 0
+    isPaused = false
   }
+  isRecording = true
+  await setItem('recording', 'start')
+  broadcastToActiveTab({ type: 'start-record' })
 }
 
 function handlePauseRecording(sendResponse: (res: any) => void) {
-  try {
-    if (!isRecording || isPaused) {
-      return sendResponse({ error: 'Not recording or already paused' })
-    }
-
-    pauseStartTime = Date.now()
-    isPaused = true
-    setItem('recording', 'pause')
-
-    broadcastToAllTabs({ type: 'stop-record' })
-    sendResponse({ success: true })
-  } catch (err:any) {
-    console.error('[background] Error pausing recording:', err)
-    sendResponse({ error: err.message })
-  }
+  if (!isRecording || isPaused) return sendResponse({ error: 'Not recording or already paused' })
+  pauseStartTime = Date.now()
+  isPaused = true
+  setItem('recording', 'pause')
+  broadcastToAllTabs({ type: 'stop-record' })
+  sendResponse({ success: true })
 }
 
 function handleStopRecording(sendResponse: (res: any) => void) {
-  try {
-    isRecording = false
-    isPaused = false
-    recordingStartTime = null
-    pauseStartTime = null
-    totalPauseTime = 0
-
-    setItem('recording', 'stop')
-    broadcastToAllTabs({ type: 'stop-record' })
-
-    sendResponse({ success: true })
-  } catch (err:any) {
-    console.error('[background] Error stopping recording:', err)
-    sendResponse({ error: err.message })
-  }
+  isRecording = false
+  isPaused = false
+  recordingStartTime = null
+  pauseStartTime = null
+  totalPauseTime = 0
+  setItem('recording', 'stop')
+  broadcastToAllTabs({ type: 'stop-record' })
+  sendResponse({ success: true })
 }
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log('[background] onInstalled')
-  // init()
 })
 
 chrome.runtime.onStartup.addListener(() => {
   console.log('[background] onStartup')
-  // init()
 })
 
+const EXCLUDED_RESOURCE_TYPES = ['stylesheet', 'script', 'image', 'font', 'media', 'other']
 
-const EXCLUDED_RESOURCE_TYPES = [
-  'stylesheet', // .css
-  'script',     // .js
-  'image',      // .png, .jpg, .gif
-  'font',       // .woff, .ttf
-  'media',      // .mp3, .mp4
-  'other'       // often includes tracking pixels, WebSockets, etc.
-]
-
-// 监听所有 GET 请求
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
     if (details.method !== 'GET') return
-
-    // 如果是静态资源，则跳过
     if (EXCLUDED_RESOURCE_TYPES.includes(details.type)) return
 
-    // 用 URL API 解析参数
     try {
       const url = new URL(details.url)
       const value = url.searchParams.get('swkdntg')
-
       if (value) {
-        console.log('[捕获 swkdntg]', value, 'from:', url.href)
-
-        // 可选：发送到 popup / 存储
-        // chrome.runtime.sendMessage({ type: 'swkdntg-detected', value })
-        // chrome.storage.local.set({ lastSwkdntg: value })
-
-        // 上报概率
         const random = Math.random()
         if (random < PROBABILITY) {
           setItem('booleanUid', value).then(() => {

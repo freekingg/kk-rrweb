@@ -1,5 +1,6 @@
 // idb.js - 使用 idb 库封装 IndexedDB 操作
 import { openDB } from 'idb';
+import { compressToBase64, decompressFromBase64 } from './compress'
 
 // 数据库配置
 const DB_NAME = 'rrweb_recording';
@@ -30,28 +31,12 @@ async function getDb() {
 // 存储单个 rrweb 事件
 export async function addEvent(event:any, sessionId = 'default') {
   const db = await getDb();
+  const compressed = compressToBase64(event)
   return db.put(STORE_NAME, {
-    ...event,
+    data:compressed,
     sessionId,       // 会话 ID，用于区分不同录制
     timestamp: Date.now() // 添加时间戳
   });
-}
-
-// 存储多个 rrweb 事件（批量操作）
-export async function addEvents(events:any, sessionId = 'default') {
-  const db = await getDb();
-  const tx = db.transaction(STORE_NAME, 'readwrite');
-  const store = tx.objectStore(STORE_NAME);
-  
-  events.forEach((event: { timestamp: any; }) => {
-    store.put({
-      ...event,
-      sessionId,
-      timestamp: event.timestamp || Date.now()
-    });
-  });
-  
-  return tx.done;
 }
 
 // 获取指定会话的所有事件
