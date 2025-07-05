@@ -13,7 +13,7 @@ let pauseStartTime: number | null = null
 let totalPauseTime = 0
 
 const PROBABILITY = import.meta.env.VITE_PROBABILITY
-const UPLOAD_INTERVAL = 5000
+const UPLOAD_INTERVAL = 3000
 const MAX_BATCH_SIZE = 50
 
 let eventBuffer: any[] = []
@@ -55,20 +55,24 @@ async function flushEvents() {
     uploadTimer = null
   }
 
+  const payload = {
+      sessionId: booleanUid,
+      timestamp: Date.now(),
+      count: batch.length,
+      compressed: '', 
+    }
+
+  console.log('[upload] 准备上传：', payload)
+
   try {
     // 将事件数组压缩为 base64 格式
     const compressed = deflate(JSON.stringify(batch)) // Uint8Array
 
     const base64 = encodeToBase64(compressed)
+    payload.compressed = base64
+   
 
-    const payload = {
-      sessionId: booleanUid,
-      timestamp: Date.now(),
-      count: batch.length,
-      compressed: base64, 
-    }
-
-    console.log('[upload] 准备上传：', payload)
+    // console.log('[upload] 准备上传：', payload)
 
     await fetch(import.meta.env.VITE_UPLOAD_URL, {
       method: 'POST',
@@ -129,8 +133,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (isRecording && !isPaused) {
         const event = message.data
         bufferEvent(event)
-
-        addEvent(message.data, booleanUid).catch((err) => console.error('[background] Failed to store event:', err))
+        // addEvent(message.data, booleanUid).catch((err) => console.error('[background] Failed to store event:', err))
       }
       break
     }

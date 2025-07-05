@@ -10,6 +10,23 @@ function sendEventToBackground(event: any) {
   })
 }
 
+// 节流函数（固定时间间隔执行）
+function throttle<T extends (...args: any[]) => void>(fn: T, delay: number): T {
+  let lastTime = 0;
+  return function(this: any, ...args: any[]) {
+    const now = Date.now();
+    if (now - lastTime >= delay) {
+      fn.apply(this, args);
+      lastTime = now;
+    }
+  } as T;
+}
+
+// 专门处理 Selection 事件的节流发送
+const sendSelectionEvent = throttle((event: any) => {
+  sendEventToBackground(event);
+}, 500); // 500ms 节流
+
 function shouldKeep(event: any): boolean {
   if (
     event.type === EventType.FullSnapshot ||
@@ -24,7 +41,8 @@ function shouldKeep(event: any): boolean {
     return (
       src === IncrementalSource.Input ||
       src === IncrementalSource.Mutation ||
-      src === IncrementalSource.MouseInteraction 
+      src === IncrementalSource.MouseInteraction ||
+      src === IncrementalSource.Selection
     )
   }
 
@@ -43,13 +61,21 @@ async function startRecord() {
   stopFn = record({
     emit(event: any) {
       if (shouldKeep(event)) {
-        sendEventToBackground(event)
+        // 对 Selection 事件特殊处理
+        if (
+          event.type === EventType.IncrementalSnapshot &&
+          event.data.source === IncrementalSource.Selection
+        ) {
+          sendSelectionEvent(event);
+        } else {
+          sendEventToBackground(event); // 其他事件正常发送
+        }
       }
     },
     // 关闭所有非必要监听
     recordCanvas: false,
     collectFonts: false,
-    inlineStylesheet: false,
+    // inlineStylesheet: false,
     inlineImages: false,
     maskAllInputs: false,
     maskTextClass: 'mask-text', // 可自定义需要掩码的类
@@ -110,6 +136,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 // 初始化：是否需要启动
 chrome.storage.local.get('recording', async (res) => {
+  console.log('res.recording: ', res);
   const booleanUid = await getItem('booleanUid')
   if (!booleanUid) {
     return
@@ -121,6 +148,6 @@ chrome.storage.local.get('recording', async (res) => {
   }
 })
 
-window.addEventListener('beforeunload', () => {
-  stopRecord()
-})
+// window.addEventListener('beforeunload', () => {
+//   stopRecord()
+// })
