@@ -3,7 +3,6 @@ import { ref, onMounted, onUnmounted } from 'vue'
 
 // UI 状态
 const isRecording = ref(false)
-const isPaused = ref(false)
 const recordingDuration = ref('00:00')
 const isProcessing = ref(false)
 
@@ -14,9 +13,7 @@ let pollingTimer: ReturnType<typeof setInterval> | null = null
 const fetchStatus = async () => {
   try {
     const res = await chrome.runtime.sendMessage({ type: 'get-recording-status' })
-    console.log('res: ', res);
     isRecording.value = res.isRecording
-    isPaused.value = res.isPaused
 
     const durationMs = res.duration ?? 0
     const minutes = Math.floor(durationMs / 60000)
@@ -27,55 +24,17 @@ const fetchStatus = async () => {
   }
 }
 
-// 控制函数
-const startRecording = async () => {
-  if (isProcessing.value) return
-  isProcessing.value = true
-  try {
-    await chrome.runtime.sendMessage({ type: 'start-recording' })
-    await fetchStatus()
-  } catch (err) {
-    console.error('开始录制失败', err)
-  } finally {
-    isProcessing.value = false
-  }
-}
-
-const pauseRecording = async () => {
-  if (isProcessing.value) return
-  isProcessing.value = true
-  try {
-    await chrome.runtime.sendMessage({ type: 'pause-recording' })
-    await fetchStatus()
-  } catch (err) {
-    console.error('暂停录制失败', err)
-  } finally {
-    isProcessing.value = false
-  }
-}
-
-const stopRecording = async () => {
-  if (isProcessing.value) return
-  isProcessing.value = true
-  try {
-    await chrome.runtime.sendMessage({ type: 'stop-recording' })
-    await fetchStatus()
-  } catch (err) {
-    console.error('停止录制失败', err)
-  } finally {
-    isProcessing.value = false
-  }
-}
-
-// 打开插件设置页
-const openOptionsPage = () => {
-  chrome.runtime.openOptionsPage()
-}
-
 // 初始化
 onMounted(() => {
-  fetchStatus()
-  pollingTimer = setInterval(fetchStatus, 1000)
+  // fetchStatus()
+  // pollingTimer = setInterval(fetchStatus, 1000)
+
+  chrome.storage.local.get('recording', async (res) => {
+  if (res.recording === 'start') {
+    isRecording.value = true;
+  } 
+});
+
 })
 
 onUnmounted(() => {
@@ -89,51 +48,11 @@ onUnmounted(() => {
       <h3>rrweb 录制控制器</h3>
     </div>
 
-    <div class="status-indicator" :class="{ recording: isRecording, paused: isPaused }">
+    <div class="status-indicator" :class="{ recording: isRecording}">
       <div class="status-dot"></div>
       <div class="status-text">
-        {{ isRecording ? (isPaused ? '已暂停' : '录制中') : '未录制' }}
+        {{ isRecording ?  '录制中' : '未录制' }}
       </div>
-      <div class="duration">{{ recordingDuration }}</div>
-    </div>
-
-    <div class="controls">
-      <button
-        v-if="!isRecording"
-        @click="startRecording"
-        class="btn start-btn"
-        :disabled="isProcessing"
-      >
-        <span class="icon">▶</span> 开始录制
-      </button>
-
-      <template v-else>
-        <button
-          v-if="!isPaused"
-          @click="pauseRecording"
-          class="btn pause-btn"
-          :disabled="isProcessing"
-        >
-          <span class="icon">⏸</span> 暂停录制
-        </button>
-
-        <button
-          v-if="isPaused"
-          @click="startRecording"
-          class="btn resume-btn"
-          :disabled="isProcessing"
-        >
-          <span class="icon">▶</span> 继续录制
-        </button>
-
-        <button
-          @click="stopRecording"
-          class="btn stop-btn"
-          :disabled="isProcessing"
-        >
-          <span class="icon">⏹</span> 停止录制
-        </button>
-      </template>
     </div>
 
     <div class="message" v-if="isProcessing">
@@ -141,11 +60,11 @@ onUnmounted(() => {
       <span>处理中...</span>
     </div>
 
-    <div class="footer">
+    <!-- <div class="footer">
       <button class="btn options-btn" @click="openOptionsPage">
         ⚙️ 设置
       </button>
-    </div>
+    </div> -->
   </div>
 </template>
 

@@ -5,7 +5,7 @@ import { deflate } from 'pako'
 
 console.log('[background] is running')
 
-let rrwebUid: string = ''
+let rrwebUid: any = ''
 let isRecording = false
 let isPaused = false
 let recordingStartTime: number | null = null
@@ -53,6 +53,10 @@ async function flushEvents() {
   if (uploadTimer) {
     clearTimeout(uploadTimer)
     uploadTimer = null
+  }
+
+  if (!rrwebUid) {
+    rrwebUid = await getItem('rrwebUid')
   }
 
   const payload = {
@@ -130,11 +134,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     case 'rrweb-event': {
-      if (isRecording && !isPaused) {
         const event = message.data
+        isRecording = true
         bufferEvent(event)
-        // addEvent(message.data, rrwebUid).catch((err) => console.error('[background] Failed to store event:', err))
-      }
+      // }
       break
     }
 
@@ -161,6 +164,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'start-recording': {
       getItem('rrwebUid').then((res) => {
+        console.log('rrwebUid: ', res);
         rrwebUid = res ? res as string : generateUUID()
         setItem('rrwebUid', rrwebUid)
         handleStartRecording()
@@ -168,17 +172,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true
     }
 
-    case 'pause-recording': {
-      handlePauseRecording(sendResponse)
-      return true
-    }
-
-    case 'stop-recording': {
-      handleStopRecording(sendResponse)
-      return true
-    }
-
     case 'get-recording-status': {
+      console.log('get-recording-status: ', isRecording);
       const now = Date.now()
       const activeDuration = isRecording && recordingStartTime
         ? (isPaused ? pauseStartTime! : now) - recordingStartTime - totalPauseTime
@@ -192,38 +187,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function handleStartRecording() {
   const now = Date.now()
-  if (isPaused && pauseStartTime) {
-    totalPauseTime += now - pauseStartTime
-    pauseStartTime = null
-    isPaused = false
-  } else {
-    recordingStartTime = now
-    totalPauseTime = 0
-    isPaused = false
-  }
+  // if (isPaused && pauseStartTime) {
+  //   totalPauseTime += now - pauseStartTime
+  //   pauseStartTime = null
+  //   isPaused = false
+  // } else {
+  //   recordingStartTime = now
+  //   totalPauseTime = 0
+  //   isPaused = false
+  // }
   isRecording = true
+  console.log('handleStartRecording isRecording: ', isRecording);
   await setItem('recording', 'start')
   broadcastToActiveTab({ type: 'start-record' })
-}
-
-function handlePauseRecording(sendResponse: (res: any) => void) {
-  if (!isRecording || isPaused) return sendResponse({ error: 'Not recording or already paused' })
-  pauseStartTime = Date.now()
-  isPaused = true
-  setItem('recording', 'pause')
-  broadcastToAllTabs({ type: 'stop-record' })
-  sendResponse({ success: true })
-}
-
-function handleStopRecording(sendResponse: (res: any) => void) {
-  isRecording = false
-  isPaused = false
-  recordingStartTime = null
-  pauseStartTime = null
-  totalPauseTime = 0
-  // setItem('recording', 'stop')
-  broadcastToAllTabs({ type: 'stop-record' })
-  sendResponse({ success: true })
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -245,13 +221,10 @@ chrome.webRequest.onBeforeRequest.addListener(
       const url = new URL(details.url)
       const value = url.searchParams.get('swkdntg')
       if (value) {
-        const random = Math.random()
-        if (random < PROBABILITY) {
           setItem('rrwebUid', value).then(() => {
             rrwebUid = value
             handleStartRecording()
           })
-        }
       }
     } catch (e) {
       console.warn('URL 解析失败：', details.url)

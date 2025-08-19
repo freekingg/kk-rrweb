@@ -1,16 +1,20 @@
-import { record, EventType, IncrementalSource } from 'rrweb'
-import { getItem } from '../utils/helper'
-let stopFn: any
-let isRecording = false
+import { record, EventType, IncrementalSource, addCustomEvent } from 'rrweb';
+import { getItem } from '../utils/helper';
+
+let stopFn: any;
+let isRecording = false;
+let heartbeatTimer: number | null = null;
+let lastHeartbeatTime = 0;
+const HEARTBEAT_INTERVAL = 30000; // 30秒间隔
 
 function sendEventToBackground(event: any) {
   chrome.runtime.sendMessage({
     type: 'rrweb-event',
     data: event,
-  })
+  });
 }
 
-// 节流函数（固定时间间隔执行）
+// 节流函数
 function throttle<T extends (...args: any[]) => void>(fn: T, delay: number): T {
   let lastTime = 0;
   return function(this: any, ...args: any[]) {
@@ -22,131 +26,150 @@ function throttle<T extends (...args: any[]) => void>(fn: T, delay: number): T {
   } as T;
 }
 
-// 专门处理 Selection 事件的节流发送
+// Selection事件节流发送
 const sendSelectionEvent = throttle((event: any) => {
   sendEventToBackground(event);
-}, 500); // 500ms 节流
+}, 500);
 
 function shouldKeep(event: any): boolean {
   if (
     event.type === EventType.FullSnapshot ||
     event.type === EventType.DomContentLoaded ||
     event.type === EventType.Load ||
-    event.type === EventType.Meta
+    event.type === EventType.Meta ||
+    event.type === EventType.Custom // 确保心跳事件被保留
   )
-    return true
+    return true;
 
   if (event.type === EventType.IncrementalSnapshot) {
-    const src = event.data.source
+    const src = event.data.source;
     return (
       src === IncrementalSource.Input ||
       src === IncrementalSource.Mutation ||
       src === IncrementalSource.MouseInteraction ||
-      src === IncrementalSource.Selection
-    )
+      src === IncrementalSource.Selection ||
+      src === IncrementalSource.Scroll
+    );
   }
 
-  return false
+  return false;
+}
+
+// 优化的心跳机制：使用requestAnimationFrame避免浏览器节流
+function startHeartbeat() {
+  // 清除旧定时器
+  if (heartbeatTimer) {
+    window.clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+
+  // 使用requestAnimationFrame实现更可靠的定时
+  function checkHeartbeat() {
+    if (!isRecording) return;
+
+    const now = Date.now();
+    // 检查是否到达心跳间隔
+    if (now - lastHeartbeatTime >= HEARTBEAT_INTERVAL) {
+      lastHeartbeatTime = now;
+      // console.log('[rrweb] 发送心跳事件');
+    }
+
+    // 继续循环检查（浏览器活跃时约16ms一次，后台时会自动降低频率但不会完全停止）
+    requestAnimationFrame(checkHeartbeat);
+  }
+
+  // 启动心跳检查循环
+  lastHeartbeatTime = Date.now();
+  requestAnimationFrame(checkHeartbeat);
 }
 
 async function startRecord() {
-  console.log('startRecord isRecording: ', isRecording);
-  if (isRecording) return
+  if (isRecording) return;
 
-  const rrwebUid = await getItem('rrwebUid')
-  if (!rrwebUid) {
-    return
-  }
+  const rrwebUid = await getItem('rrwebUid');
+  if (!rrwebUid) return;
+  
+  // 启动优化后的心跳
+  startHeartbeat();
   
   stopFn = record({
     emit(event: any) {
       if (shouldKeep(event)) {
-        // 对 Selection 事件特殊处理
         if (
           event.type === EventType.IncrementalSnapshot &&
           event.data.source === IncrementalSource.Selection
         ) {
           sendSelectionEvent(event);
         } else {
-          sendEventToBackground(event); // 其他事件正常发送
+          sendEventToBackground(event);
         }
       }
     },
-    // 关闭所有非必要监听
     recordCanvas: false,
     collectFonts: false,
-    // inlineStylesheet: false,
     inlineImages: false,
     maskAllInputs: false,
-    maskTextClass: 'mask-text', // 可自定义需要掩码的类
-    blockClass: 'no-record', // 添加此类名元素不记录
-    ignoreClass: 'ignore', // 忽略元素变化
-    // 精简 DOM 快照
+    maskTextClass: 'mask-text',
+    blockClass: 'no-record',
+    ignoreClass: 'ignore',
     slimDOMOptions: {
-      script: false, // 移除所有 script
-      comment: true, // 移除注释
-      headFavicon: true, // 移除 favicon
-      headWhitespace: true, // 移除头部空白
+      script: false,
+      comment: true,
+      headFavicon: true,
+      headWhitespace: true,
     },
-    // 数据采样
     sampling: {
-      scroll: 0, // 完全禁用滚动
-      mousemove: 0, // 完全禁用鼠标移动
+      scroll: 0,
+      mousemove: 0,
       mouseInteraction: {
-        MouseUp: false,
-        MouseDown: false,
-        Click: true, // 只保留点击
+        MouseUp: true,
+        MouseDown: true,
+        Click: true,
         ContextMenu: false,
-        DblClick: false,
-        Focus: false,
-        Blur: false,
+        DblClick: true,
+        Focus: true,
+        Blur: true,
         TouchStart: false,
         TouchEnd: false,
       },
-      input: 'last', // 输入事件节流
+      input: 'last',
     },
-  })
+  });
 
-  isRecording = true
-  console.log('[rrweb] started in tab', location.href)
+  isRecording = true;
+  console.log('[rrweb] started in tab', location.href);
 }
 
 function stopRecord() {
-  // if (!isRecording) return
-  // isRecording = false
+  if (!isRecording) return;
+  
+  isRecording = false;
 
-  // if (stopFn) {
-  //   stopFn()
-  //   stopFn = null
-  //   console.log('[rrweb] stopped in tab', location.href)
-  // }
+  if (stopFn) {
+    stopFn();
+    stopFn = null;
+    console.log('[rrweb] stopped in tab', location.href);
+  }
 }
 
-// 监听 background 消息
+// 监听background消息
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'start-record') {
-    startRecord()
+    startRecord();
   }
-  if (msg.type === 'stop-record') {
-    stopRecord()
-  }
-})
+  // if (msg.type === 'stop-record') {
+  //   stopRecord();
+  // }
+});
 
-// 初始化：是否需要启动
+// 初始化
 chrome.storage.local.get('recording', async (res) => {
-  console.log('res.recording: ', res);
-  const rrwebUid = await getItem('rrwebUid')
-  console.log('rrwebUid: ', rrwebUid);
-  if (!rrwebUid) {
-    return
-  }
+  console.log('storage recording status:', res);
+  const rrwebUid = await getItem('rrwebUid');
+  
+  if (!rrwebUid) return;
+  
   if (res.recording === 'start') {
-    startRecord()
-  } else {
-    stopRecord()
-  }
-})
-
-// window.addEventListener('beforeunload', () => {
-//   stopRecord()
-// })
+    startRecord();
+  } 
+});
