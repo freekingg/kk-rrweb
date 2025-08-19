@@ -49,9 +49,9 @@ function shouldKeep(event: any): boolean {
   return false
 }
 
-let initing = false
 async function startRecord() {
-  if (isRecording || initing) return
+  console.log('startRecord isRecording: ', isRecording);
+  if (isRecording) return
 
   const rrwebUid = await getItem('rrwebUid')
   if (!rrwebUid) {
@@ -108,8 +108,6 @@ async function startRecord() {
   })
 
   isRecording = true
-  initing = false
-
   console.log('[rrweb] started in tab', location.href)
 }
 
