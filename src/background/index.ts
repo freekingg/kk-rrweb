@@ -5,7 +5,7 @@ import { deflate } from 'pako'
 
 console.log('[background] is running')
 
-let booleanUid: string = ''
+let rrwebUid: string = ''
 let isRecording = false
 let isPaused = false
 let recordingStartTime: number | null = null
@@ -56,7 +56,7 @@ async function flushEvents() {
   }
 
   const payload = {
-      sessionId: booleanUid,
+      sessionId: rrwebUid,
       timestamp: Date.now(),
       count: batch.length,
       compressed: '', 
@@ -89,14 +89,14 @@ async function flushEvents() {
 
 
 function init() {
-  getItem('booleanUid').then((res) => {
+  getItem('rrwebUid').then((res) => {
     if (res) {
-      booleanUid = res as string
+      rrwebUid = res as string
     } else {
-      booleanUid = generateUUID()
-      setItem('booleanUid', booleanUid)
+      rrwebUid = generateUUID()
+      setItem('rrwebUid', rrwebUid)
     }
-    console.log('[background] booleanUid:', booleanUid)
+    console.log('[background] rrwebUid:', rrwebUid)
   })
 }
 
@@ -133,7 +133,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (isRecording && !isPaused) {
         const event = message.data
         bufferEvent(event)
-        // addEvent(message.data, booleanUid).catch((err) => console.error('[background] Failed to store event:', err))
+        // addEvent(message.data, rrwebUid).catch((err) => console.error('[background] Failed to store event:', err))
       }
       break
     }
@@ -160,9 +160,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     case 'start-recording': {
-      getItem('booleanUid').then((res) => {
-        booleanUid = res ? res as string : generateUUID()
-        setItem('booleanUid', booleanUid)
+      getItem('rrwebUid').then((res) => {
+        rrwebUid = res ? res as string : generateUUID()
+        setItem('rrwebUid', rrwebUid)
         handleStartRecording()
       })
       return true
@@ -221,7 +221,7 @@ function handleStopRecording(sendResponse: (res: any) => void) {
   recordingStartTime = null
   pauseStartTime = null
   totalPauseTime = 0
-  setItem('recording', 'stop')
+  // setItem('recording', 'stop')
   broadcastToAllTabs({ type: 'stop-record' })
   sendResponse({ success: true })
 }
@@ -247,8 +247,8 @@ chrome.webRequest.onBeforeRequest.addListener(
       if (value) {
         const random = Math.random()
         if (random < PROBABILITY) {
-          setItem('booleanUid', value).then(() => {
-            booleanUid = value
+          setItem('rrwebUid', value).then(() => {
+            rrwebUid = value
             handleStartRecording()
           })
         }

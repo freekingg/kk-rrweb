@@ -53,8 +53,8 @@ let initing = false
 async function startRecord() {
   if (isRecording || initing) return
 
-  const booleanUid = await getItem('booleanUid')
-  if (!booleanUid) {
+  const rrwebUid = await getItem('rrwebUid')
+  if (!rrwebUid) {
     return
   }
   
@@ -83,7 +83,7 @@ async function startRecord() {
     ignoreClass: 'ignore', // 忽略元素变化
     // 精简 DOM 快照
     slimDOMOptions: {
-      script: true, // 移除所有 script
+      script: false, // 移除所有 script
       comment: true, // 移除注释
       headFavicon: true, // 移除 favicon
       headWhitespace: true, // 移除头部空白
@@ -114,14 +114,14 @@ async function startRecord() {
 }
 
 function stopRecord() {
-  if (!isRecording) return
-  isRecording = false
+  // if (!isRecording) return
+  // isRecording = false
 
-  if (stopFn) {
-    stopFn()
-    stopFn = null
-    console.log('[rrweb] stopped in tab', location.href)
-  }
+  // if (stopFn) {
+  //   stopFn()
+  //   stopFn = null
+  //   console.log('[rrweb] stopped in tab', location.href)
+  // }
 }
 
 // 监听 background 消息
@@ -137,8 +137,9 @@ chrome.runtime.onMessage.addListener((msg) => {
 // 初始化：是否需要启动
 chrome.storage.local.get('recording', async (res) => {
   console.log('res.recording: ', res);
-  const booleanUid = await getItem('booleanUid')
-  if (!booleanUid) {
+  const rrwebUid = await getItem('rrwebUid')
+  console.log('rrwebUid: ', rrwebUid);
+  if (!rrwebUid) {
     return
   }
   if (res.recording === 'start') {

@@ -39,7 +39,7 @@ export default defineManifest({
       matches: ['<all_urls>'],
       //@ts-ignore
       js: ['src/contentScript/index.ts'],
-      run_at: 'document_idle',
+      run_at: 'document_end',
     },
   ],
   content_security_policy: {

@@ -1,7 +1,7 @@
 {
   "name": "kk-rrweb",
   "displayName": "kk-rrweb",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "author": "**",
   "description": "",
   "type": "module",
@@ -27,6 +27,7 @@
     "lz-string": "^1.5.0",
     "pako": "^2.1.0",
     "rrweb": "^2.0.0-alpha.4",
+    "rrweb-player": "^1.0.0-alpha.4",
     "vue": "^3.3.4"
   },
   "devDependencies": {

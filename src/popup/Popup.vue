@@ -14,6 +14,7 @@ let pollingTimer: ReturnType<typeof setInterval> | null = null
 const fetchStatus = async () => {
   try {
     const res = await chrome.runtime.sendMessage({ type: 'get-recording-status' })
+    console.log('res: ', res);
     isRecording.value = res.isRecording
     isPaused.value = res.isPaused
 
