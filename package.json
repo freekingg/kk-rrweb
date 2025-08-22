@@ -1,17 +1,11 @@
 {
-  "name": "kk-rrweb",
-  "displayName": "kk-rrweb",
-  "version": "2.0.0",
+  "name": "boolean-monitor",
+  "displayName": "boolean-Monitor",
+  "version": "2.0.3",
   "author": "**",
   "description": "",
   "type": "module",
   "license": "MIT",
-  "keywords": [
-    "chrome-extension",
-    "vue",
-    "vite",
-    "create-chrome-ext"
-  ],
   "engines": {
     "node": ">=14.18.0"
   },

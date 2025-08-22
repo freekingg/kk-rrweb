@@ -125,6 +125,7 @@ async function broadcastToAllTabs(msg: any) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log('message: ', message);
   switch (message.type) {
     case '__EXTENSION_MSG__': {
       if (message.data) {
@@ -164,7 +165,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'start-recording': {
       getItem('rrwebUid').then((res) => {
-        console.log('rrwebUid: ', res);
         rrwebUid = res ? res as string : generateUUID()
         setItem('rrwebUid', rrwebUid)
         handleStartRecording()
@@ -172,8 +172,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true
     }
 
+    case 'stop-recording': {
+      isRecording = false
+      setItem('recording', 'stop')
+      return true
+    }
+
     case 'get-recording-status': {
-      console.log('get-recording-status: ', isRecording);
       const now = Date.now()
       const activeDuration = isRecording && recordingStartTime
         ? (isPaused ? pauseStartTime! : now) - recordingStartTime - totalPauseTime

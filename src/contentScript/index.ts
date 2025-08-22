@@ -26,10 +26,15 @@ function throttle<T extends (...args: any[]) => void>(fn: T, delay: number): T {
   } as T;
 }
 
+// Input事件节流发送
+const sendInputEvent = throttle((event: any) => {
+  sendEventToBackground(event);
+}, 1000);
+
 // Selection事件节流发送
 const sendSelectionEvent = throttle((event: any) => {
   sendEventToBackground(event);
-}, 500);
+}, 1000);
 
 function shouldKeep(event: any): boolean {
   if (
@@ -91,18 +96,31 @@ async function startRecord() {
   
   // 启动优化后的心跳
   startHeartbeat();
-  
+
   stopFn = record({
     emit(event: any) {
+
+      // 输入事件单独处理（节流）
+      if (
+        event.type === EventType.IncrementalSnapshot &&
+        event.data.source === IncrementalSource.Input
+      ) {
+        sendInputEvent(event);
+        return;
+      }
+
+       // Selection 事件节流
+      if (
+        event.type === EventType.IncrementalSnapshot &&
+        event.data.source === IncrementalSource.Selection
+      ) {
+        sendSelectionEvent(event);
+        return;
+      }
+
+      // 其他事件照旧
       if (shouldKeep(event)) {
-        if (
-          event.type === EventType.IncrementalSnapshot &&
-          event.data.source === IncrementalSource.Selection
-        ) {
-          sendSelectionEvent(event);
-        } else {
-          sendEventToBackground(event);
-        }
+        sendEventToBackground(event);
       }
     },
     recordCanvas: false,
@@ -132,7 +150,7 @@ async function startRecord() {
         TouchStart: false,
         TouchEnd: false,
       },
-      input: 'last',
+      input: 'all',
     },
   });
 
@@ -164,11 +182,9 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 // 初始化
 chrome.storage.local.get('recording', async (res) => {
-  console.log('storage recording status:', res);
+  console.log('recording res: ', res);
   const rrwebUid = await getItem('rrwebUid');
-  
   if (!rrwebUid) return;
-  
   if (res.recording === 'start') {
     startRecord();
   } 
