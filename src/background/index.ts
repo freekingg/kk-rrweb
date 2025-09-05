@@ -92,18 +92,6 @@ async function flushEvents() {
 }
 
 
-function init() {
-  getItem('rrwebUid').then((res) => {
-    if (res) {
-      rrwebUid = res as string
-    } else {
-      rrwebUid = generateUUID()
-      setItem('rrwebUid', rrwebUid)
-    }
-    console.log('[background] rrwebUid:', rrwebUid)
-  })
-}
-
 async function broadcastToActiveTab(msg: any) {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
@@ -215,26 +203,64 @@ chrome.runtime.onStartup.addListener(() => {
   console.log('[background] onStartup')
 })
 
-const EXCLUDED_RESOURCE_TYPES = ['stylesheet', 'script', 'image', 'font', 'media', 'other']
 
+
+/**
+ * 从URL中提取swkdntg参数
+ * @param urlStr URL字符串
+ * @returns 参数值或null
+ */
+function extractSwkdntg(urlStr: string): string | null {
+  try {
+    const url = new URL(urlStr);
+    return url.searchParams.get('swkdntg') || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * 处理swkdntg参数（统一逻辑）
+ * @param value 参数值
+ */
+async function handleSwkdntg(value: string) {
+  if (!value || rrwebUid === value) return
+  console.log('[handleSwkdntg] 更新rrwebUid,开始:', value);
+  try {
+    rrwebUid = value;
+    await setItem('rrwebUid', value);
+    await handleStartRecording(); // 启动录制
+  } catch (err) {
+    console.error('[handleSwkdntg] 处理失败:', err);
+  }
+}
+
+const EXCLUDED_RESOURCE_TYPES = ['stylesheet', 'script', 'image', 'font', 'media']
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
     if (details.method !== 'GET') return
     if (EXCLUDED_RESOURCE_TYPES.includes(details.type)) return
 
-    try {
-      const url = new URL(details.url)
-      const value = url.searchParams.get('swkdntg')
-      if (value) {
-          setItem('rrwebUid', value).then(() => {
-            rrwebUid = value
-            handleStartRecording()
-          })
-      }
-    } catch (e) {
-      console.warn('URL 解析失败：', details.url)
+
+    const value = extractSwkdntg(details.url);
+    if (value) {
+      handleSwkdntg(value)
     }
   },
   { urls: ['<all_urls>'] },
   []
 )
+
+// 监听重定向（补充捕获重定向URL中的参数）
+chrome.webRequest.onBeforeRedirect.addListener(
+  (details) => {
+    if (!details.redirectUrl) return;
+    console.log('onBeforeRedirect: ', details);
+    const value = extractSwkdntg(details.redirectUrl);
+    if (value) {
+      handleSwkdntg(value)
+    }
+  },
+  { urls: ['<all_urls>'] },
+  []
+);

@@ -1,6 +1,8 @@
 import { record, EventType, IncrementalSource, addCustomEvent } from 'rrweb';
 import { getItem } from '../utils/helper';
 
+console.log('[kk-rrweb-contentScript] 加载');
+
 let stopFn: any;
 let isRecording = false;
 let heartbeatTimer: number | null = null;
@@ -29,7 +31,7 @@ function throttle<T extends (...args: any[]) => void>(fn: T, delay: number): T {
 // Input事件节流发送
 const sendInputEvent = throttle((event: any) => {
   sendEventToBackground(event);
-}, 1000);
+}, 100);
 
 // Selection事件节流发送
 const sendSelectionEvent = throttle((event: any) => {
@@ -182,7 +184,6 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 // 初始化
 chrome.storage.local.get('recording', async (res) => {
-  console.log('recording res: ', res);
   const rrwebUid = await getItem('rrwebUid');
   if (!rrwebUid) return;
   if (res.recording === 'start') {
