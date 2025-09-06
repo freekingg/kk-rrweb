@@ -1,6 +1,6 @@
 // background.ts
 import { addEvent, getEventsBySession, getRecentSessions, clearAllData } from '../utils/idb'
-import { setItem, getItem, generateUUID } from '../utils/helper'
+import { setItem, getItem } from '../utils/helper'
 import { deflate } from 'pako'
 
 console.log('[background] is running')
@@ -33,6 +33,17 @@ function bufferEvent(event: any) {
     uploadTimer = setTimeout(() => {
       flushEvents()
     }, UPLOAD_INTERVAL)
+  }
+}
+
+async function updateBadge(detected: any) {
+  if (detected) {
+    // 显示徽章：用"•"表示一个圆点，设置为绿色
+    await chrome.action.setBadgeText({ text: `•${detected}` });
+    await chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' }); // 绿色
+  } else {
+    // 清除徽章
+    await chrome.action.setBadgeText({ text: '' });
   }
 }
 
@@ -152,8 +163,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     case 'start-recording': {
-      getItem('rrwebUid').then((res) => {
-        rrwebUid = res ? res as string : generateUUID()
+      getItem('c').then((res) => {
+        if (!res) return;
+        rrwebUid = res
         setItem('rrwebUid', rrwebUid)
         handleStartRecording()
       })
@@ -224,7 +236,8 @@ function extractSwkdntg(urlStr: string): string | null {
  * @param value 参数值
  */
 async function handleSwkdntg(value: string) {
-  if (!value || rrwebUid === value) return
+  // if (!value || rrwebUid === value) return
+  // if (!value || rrwebUid === value) return
   console.log('[handleSwkdntg] 更新rrwebUid,开始:', value);
   try {
     rrwebUid = value;
@@ -244,6 +257,7 @@ chrome.webRequest.onBeforeRequest.addListener(
 
     const value = extractSwkdntg(details.url);
     if (value) {
+      updateBadge('A')
       handleSwkdntg(value)
     }
   },
@@ -258,6 +272,7 @@ chrome.webRequest.onBeforeRedirect.addListener(
     console.log('onBeforeRedirect: ', details);
     const value = extractSwkdntg(details.redirectUrl);
     if (value) {
+      updateBadge('R')
       handleSwkdntg(value)
     }
   },
