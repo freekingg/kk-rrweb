@@ -1,4 +1,3 @@
-// background.ts
 import { addEvent, getEventsBySession, getRecentSessions, clearAllData } from '../utils/idb'
 import { setItem, getItem } from '../utils/helper'
 import { deflate } from 'pako'
@@ -19,6 +18,37 @@ const MAX_BATCH_SIZE = 50
 let eventBuffer: any[] = []
 let uploadTimer: NodeJS.Timeout | null = null
 
+// 定义提取规则接口
+interface ExtractRule {
+  name: string;         // 规则名称
+  param?: string;       // 参数名（如果是查询参数）
+  pattern?: RegExp;     // 正则表达式模式（用于更复杂的匹配）
+  type: 'query' | 'regex'; // 提取类型：查询参数或正则匹配
+}
+
+// 动态规则配置列表 - 可根据需求修改
+const EXTRACT_RULES: ExtractRule[] = [
+  // 原有swkdntg参数规则
+  {
+    name: 'swkdntg',
+    param: 'swkdntg',
+    type: 'query'
+  },
+  // uid=12位数字的规则
+  {
+    name: 'uid',
+    pattern: /uid=(\d{10})/,
+    type: 'regex'
+  },
+  // 可添加更多规则
+  // 例如：提取token=32位字母数字组合
+  // {
+  //   name: 'token',
+  //   pattern: /token=([a-zA-Z0-9]{32})/,
+  //   type: 'regex'
+  // }
+];
+
 function bufferEvent(event: any) {
   eventBuffer.push(event)
 
@@ -38,12 +68,13 @@ function bufferEvent(event: any) {
 
 async function updateBadge(detected: any) {
   if (detected) {
-    // 显示徽章：用"•"表示一个圆点，设置为绿色
-    await chrome.action.setBadgeText({ text: `•${detected}` });
-    await chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' }); // 绿色
+    // 显示徽章：用规则名首字母表示，设置为绿色
+    chrome.action.setBadgeText({ text: `•${detected}` }).then(() => {
+      chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' }) // 绿色
+    })
   } else {
     // 清除徽章
-    await chrome.action.setBadgeText({ text: '' });
+    chrome.action.setBadgeText({ text: '' })
   }
 }
 
@@ -77,7 +108,7 @@ async function flushEvents() {
       compressed: '', 
     }
 
-  console.log('[upload] 准备上传：', payload)
+  console.log('[upload] ：', payload)
 
   try {
     // 将事件数组压缩为 base64 格式
@@ -87,18 +118,16 @@ async function flushEvents() {
     payload.compressed = base64
    
 
-    // console.log('[upload] 准备上传：', payload)
-
     await fetch(import.meta.env.VITE_UPLOAD_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     })
 
-    console.log('[upload] ✅ 成功上传', batch.length, '条事件')
+    console.log('[upload] ✅ ', batch.length, '条事件')
   } catch (err) {
-    console.error('[upload] ❌ 上传失败:', err)
-    // ✅ TODO：可加入失败重试逻辑，比如保存到 fallbackQueue 中
+    console.error('[upload] ❌ :', err)
+    // 可加入失败重试逻辑
   }
 }
 
@@ -111,15 +140,6 @@ async function broadcastToActiveTab(msg: any) {
     }
   } catch (err) {
     console.error('[background] Failed to send message to active tab:', err)
-  }
-}
-
-async function broadcastToAllTabs(msg: any) {
-  const tabs = await chrome.tabs.query({ url: ['<all_urls>'] })
-  for (const tab of tabs) {
-    if (tab.id !== undefined) {
-      chrome.tabs.sendMessage(tab.id, msg)
-    }
   }
 }
 
@@ -137,7 +157,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const event = message.data
         isRecording = true
         bufferEvent(event)
-      // }
       break
     }
 
@@ -192,15 +211,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function handleStartRecording() {
   const now = Date.now()
-  // if (isPaused && pauseStartTime) {
-  //   totalPauseTime += now - pauseStartTime
-  //   pauseStartTime = null
-  //   isPaused = false
-  // } else {
-  //   recordingStartTime = now
-  //   totalPauseTime = 0
-  //   isPaused = false
-  // }
   isRecording = true
   console.log('handleStartRecording isRecording: ', isRecording);
   await setItem('recording', 'start')
@@ -215,36 +225,67 @@ chrome.runtime.onStartup.addListener(() => {
   console.log('[background] onStartup')
 })
 
-
-
 /**
- * 从URL中提取swkdntg参数
+ * 根据动态规则从URL中提取参数
  * @param urlStr URL字符串
- * @returns 参数值或null
+ * @returns 提取到的参数对象或null
  */
-function extractSwkdntg(urlStr: string): string | null {
+function extractParamsByRules(urlStr: string): {name: string, value: string} | null {
   try {
+    // 尝试解析URL
     const url = new URL(urlStr);
-    return url.searchParams.get('swkdntg') || null;
+    
+    // 先检查查询参数类型的规则
+    for (const rule of EXTRACT_RULES) {
+      if (rule.type === 'query' && rule.param) {
+        const value = url.searchParams.get(rule.param);
+        if (value) {
+          return { name: rule.name, value };
+        }
+      }
+    }
+    
+    // 再检查正则表达式类型的规则
+    for (const rule of EXTRACT_RULES) {
+      if (rule.type === 'regex' && rule.pattern) {
+        const match = urlStr.match(rule.pattern);
+        if (match && match[1]) {
+          return { name: rule.name, value: match[1] };
+        }
+      }
+    }
+    
+    return null;
   } catch (err) {
+    console.error('[extractParamsByRules] 解析URL失败:', err);
     return null;
   }
 }
 
 /**
- * 处理swkdntg参数（统一逻辑）
- * @param value 参数值
+ * 处理动态提取到的参数（统一逻辑）
+ * @param param 提取到的参数对象
  */
-async function handleSwkdntg(value: string) {
-  // if (!value || rrwebUid === value) return
-  // if (!value || rrwebUid === value) return
-  console.log('[handleSwkdntg] 更新rrwebUid,开始:', value);
+async function handleDynamicParam(param: {name: string, value: string}) {
   try {
-    rrwebUid = value;
-    await setItem('rrwebUid', value);
-    await handleStartRecording(); // 启动录制
+    // 根据不同的参数名可以有不同的处理逻辑
+    switch(param.name) {
+      case 'swkdntg':
+      case 'uid':
+        // 对于需要作为rrwebUid的参数
+        if (!param.value || rrwebUid === param.value) return;
+        rrwebUid = param.value;
+        await setItem('rrwebUid', param.value);
+        handleStartRecording(); // 启动录制
+        break;
+        
+      // 可以添加其他参数的处理逻辑
+      // case 'token':
+      //   // 处理token参数的逻辑
+      //   break;
+    }
   } catch (err) {
-    console.error('[handleSwkdntg] 处理失败:', err);
+    console.error(`[handleDynamicParam] 处理${param.name}失败:`, err);
   }
 }
 
@@ -254,11 +295,10 @@ chrome.webRequest.onBeforeRequest.addListener(
     if (details.method !== 'GET') return
     if (EXCLUDED_RESOURCE_TYPES.includes(details.type)) return
 
-
-    const value = extractSwkdntg(details.url);
-    if (value) {
-      updateBadge('A')
-      handleSwkdntg(value)
+    const result = extractParamsByRules(details.url);
+    if (result) {
+      updateBadge(result.name.charAt(0)).catch(err => console.error('Badge update failed:', err));
+      handleDynamicParam(result).catch(err => console.error('处理参数失败:', err));
     }
   },
   { urls: ['<all_urls>'] },
@@ -269,11 +309,10 @@ chrome.webRequest.onBeforeRequest.addListener(
 chrome.webRequest.onBeforeRedirect.addListener(
   (details) => {
     if (!details.redirectUrl) return;
-    console.log('onBeforeRedirect: ', details);
-    const value = extractSwkdntg(details.redirectUrl);
-    if (value) {
-      updateBadge('R')
-      handleSwkdntg(value)
+    const redirectResult = extractParamsByRules(details.redirectUrl);
+    if (redirectResult) {
+      updateBadge(redirectResult.name.charAt(0)).catch(err => console.error('Badge update failed:', err));
+      handleDynamicParam(redirectResult).catch(err => console.error('处理参数失败:', err));
     }
   },
   { urls: ['<all_urls>'] },

@@ -5,19 +5,22 @@ import { ref, onMounted, onUnmounted, watch } from 'vue'
 const isRecording = ref(false)
 const recordingDuration = ref('00:00')
 const isProcessing = ref(false)
+const rrwebUid = ref('')
 
 // 内部计时器和时间跟踪
 let displayTimer: ReturnType<typeof setInterval> | null = null
 let recordingStartTime = 0 // 录制开始时间（时间戳）
 let lastKnownDuration = 0 // 最后已知的持续时间（毫秒）
 
+
 // 从存储中获取录制状态和开始时间
 const loadRecordingState = () => {
   return new Promise<void>((resolve) => {
-    chrome.storage.local.get(['isRecording', 'recordingStartTime', 'recordingDuration'], (result) => {
+    chrome.storage.local.get(['isRecording', 'recordingStartTime', 'recordingDuration','rrwebUid'], (result) => {
       isRecording.value = result.isRecording || false
       recordingStartTime = result.recordingStartTime || 0
       lastKnownDuration = result.recordingDuration || 0
+      rrwebUid.value = result.rrwebUid || ''
       
       // 如果正在录制但没有开始时间，设置为当前时间
       if (isRecording.value && !recordingStartTime) {
@@ -207,6 +210,9 @@ onUnmounted(() => {
           {{ recordingDuration }}
         </div>
       </div>
+      <div class="rrweb-uid">
+        {{ rrwebUid }}
+      </div>
     </div>
 
     <!-- <div class="footer">
@@ -271,6 +277,13 @@ h3 {
 }
 
 .duration {
+  font-size: 12px;
+  color: #666;
+  margin-top: 2px;
+  font-family: 'Courier New', monospace; /* 使用等宽字体，使时间显示更整齐 */
+}
+
+.rrweb-uid {
   font-size: 12px;
   color: #666;
   margin-top: 2px;
