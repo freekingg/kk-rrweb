@@ -130,8 +130,7 @@ async function startRecord() {
     inlineImages: false,
     maskAllInputs: false,
     maskTextClass: 'mask-text',
-    blockClass: 'no-record',
-    ignoreClass: 'ignore',
+    blockClass: 'immersive-translate-target-wrapper',
     slimDOMOptions: {
       script: false,
       comment: true,
