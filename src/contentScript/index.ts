@@ -131,6 +131,7 @@ async function startRecord() {
     maskAllInputs: false,
     maskTextClass: 'mask-text',
     blockClass: 'immersive-translate-target-wrapper',
+    recordShadowDom: true,
     slimDOMOptions: {
       script: false,
       comment: true,
@@ -153,7 +154,7 @@ async function startRecord() {
       },
       input: 'all',
     },
-  });
+  } as any);
 
   isRecording = true;
   console.log('[rrweb] started in tab', location.href);
